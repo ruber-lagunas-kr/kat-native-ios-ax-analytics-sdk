@@ -1,0 +1,17 @@
+#!/usr/bin/env ruby
+
+# get the 'commit file' from 'git'
+commit_message_file = ARGV[0]
+# get the 'commit message' value from 'git'
+commit_message = File.read(commit_message_file)
+# regular expression matching 'conventional commits' specification: https://www.conventionalcommits.org/en/v1.0.0/
+conventional_commits_regex = /^(((build|chore|ci|docs|feat|fix|perf|refactor|release|revert|style|test)(\([a-z ]+\))?!?:|(Merge))|(BREAKING(-| )CHANGE:)) .+$/
+# prevent messages from being committed unless they match the regex
+unless commit_message.match(conventional_commits_regex)
+    puts "Commit message:"
+    puts "#{commit_message}"
+    puts "\n"
+    puts "Does not match regex:"
+    puts "#{conventional_commits_regex}"
+    exit 1
+end

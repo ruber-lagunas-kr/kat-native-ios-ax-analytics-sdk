@@ -1,0 +1,106 @@
+def get_absolute_path(relative_path)
+  File.expand_path(relative_path, File.join("../", File.dirname(__FILE__)))
+end
+
+def file_exist?(relative_path)
+  File.exist?(get_absolute_path(relative_path))
+end
+
+#
+## Lanes
+#
+
+changelog_file = "./CHANGELOG.md"
+package_name = "AnalyticsApi"
+fastlane_folder = "fastlane"
+code_coverage_folder = "code-coverage"
+derived_data_path = ".derived-data"
+project_configuration = "debug"
+destinations = {
+  "iOS" => "platform=iOS Simulator,name=iPhone 11 Pro Max",
+  "tvOS" => "platform=tvOS Simulator,name=Apple TV 4K",
+  "macOS" => "platform=macOS,arch=x86_64"
+}
+
+desc "Try to release a new version by updating the CHANGELOG and adding a git tag - if releasable"
+lane :try_release do
+  # Check if there is any 'releasable' change since last version
+  is_releasable = analyze_commits(match: "*")
+
+  if is_releasable and is_ci then
+      # Get the 'release notes' to append to the CHANGELOG
+      release_notes = conventional_changelog(format: "markdown", display_links: false)
+
+      unless file_exist?(changelog_file)
+          # Create the CHANGELOG file - if does not exist
+          sh("cd .. && touch #{changelog_file}")
+      end
+
+      # Get the current CHANGELOG content
+      changelog_content = File.read(get_absolute_path(changelog_file))
+      # Produces the 'new' value the CHANGELOG must have
+      changelog = release_notes << "\n\n" << changelog_content
+      # Overwrite the current content of the CHANGELOG with the new one
+      sh("cd .. && echo \"#{changelog.strip}\" > #{changelog_file}")
+      # Get the next releasable version
+      next_release_version = lane_context[SharedValues::RELEASE_NEXT_VERSION]
+      # Stage the CHANGELOG file
+      git_add(path: changelog_file)
+      # Commit CHANGELOG changes
+      git_commit(path: changelog_file, message: "release: v#{next_release_version}\n[skip ci]")
+      # Ensure 'git status' is clean
+      ensure_git_status_clean
+      # Add the git tag
+      add_git_tag(tag: next_release_version)
+      # Push CHANGELOG changes + last git tag
+      push_to_git_remote(remote: "origin", local_branch: "HEAD", remote_branch: "master", tags: true)
+  end
+end
+
+desc "Run unit tests and generate the code coverage data for the given platform | valid platforms: iOS|tvOS|macOS"
+lane :test do |options|
+  # Generate the xcode project from the swift package
+  sh("swift package generate-xcodeproj --enable-code-coverage")
+  # Run the unit tests exporting the code coverage info
+  platform = options[:platform] || "iOS"
+  scan(
+      project: "#{package_name}.xcodeproj",
+      scheme: "#{package_name}-Package",
+      configuration: project_configuration.capitalize(),
+      force_quit_simulator: true,
+      output_directory: "#{fastlane_folder}/tests",
+      code_coverage: true,
+      derived_data_path: derived_data_path,
+      output_types: "junit",
+      destination: destinations[platform]
+  )
+  # Generate the code coverage report
+  slather(
+      proj: "#{package_name}.xcodeproj",
+      scheme: "#{package_name}-Package",
+      configuration: project_configuration.downcase,
+      build_directory: derived_data_path,
+      binary_file: "#{derived_data_path}/Build/Products/Debug-iphonesimulator/#{package_name}.framework/#{package_name}",
+      cobertura_xml: true,
+      use_bundle_exec: true,
+      ignore: "Tests",
+      output_directory: "#{fastlane_folder}/#{code_coverage_folder}",
+  )
+end
+
+desc "Build the package for the given platform | valid platforms: iOS|tvOS|macOS"
+lane :build_package do |options|
+  # Generate the xcode project from the swift package
+  sh("swift package generate-xcodeproj --enable-code-coverage")
+  # Build the project/package for the given platform
+  platform = options[:platform] || "iOS"
+  xcodebuild(
+      build: true,
+      clean: true,
+      project: "#{package_name}.xcodeproj",
+      
+      scheme: "#{package_name}-Package",
+      configuration: project_configuration.capitalize(),
+      destination: destinations[platform]
+  )
+end

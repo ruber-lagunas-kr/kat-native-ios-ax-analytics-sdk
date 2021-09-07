@@ -1,0 +1,12 @@
+#!/bin/bash
+# Need to add this to the path variable for this to execute properly
+PATH=$PATH:/usr/local/bin:/usr/local/sbin
+# check to see if swiftformat is installed, if not install it
+brew list swiftformat || brew install swiftformat
+# check to see if swiftformat needs an upgrade
+brew outdated swiftformat || brew upgrade swiftformat
+# format swift code
+swiftformat ./Sources ./Tests
+swiftformat --lint ./Sources ./Tests
+# check project builds
+swift build --build-tests
